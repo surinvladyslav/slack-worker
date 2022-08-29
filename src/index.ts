@@ -7,39 +7,36 @@ export default {
 		ctx: ExecutionContext
 	): Promise<Response> {
 		try {
-			const {token, challenge, type} = await request.json();
-			const requestTimestampSec = await request.headers.get('x-slack-request-timestamp') as unknown as number;
+			const {token} = await request.json();
+			const requestTimestampSec = await request.headers.get('x-slack-request-timestamp') as string;
 			const signature = await request.headers.get('x-slack-signature') as string;
 
-			const verify: boolean = await verifySlackRequest({
-				signingSecret: '5d21573fcbf36327034639919d2eaaca',
-				body: {token, challenge, type},
+			const verify = await verifySlackRequest({
+				signingSecret: '5d21573fcbf36327034639919d2eaaca', // link to the documentation https://api.slack.com/authentication/verifying-requests-from-slack#verifying-requests-from-slack-using-signing-secrets__a-recipe-for-security__step-by-step-walk-through-for-validating-a-request
+				body: {token},
 				headers: {
-					"x-slack-request-timestamp": requestTimestampSec,
-					"x-slack-signature": signature,
+					slackRequestTimestamp: JSON.parse(requestTimestampSec),
+					slackSignature: signature,
 				},
 			});
-			// @ts-ignore
-			return new Response(verify);
+			return new Response(JSON.stringify(verify));
 		} catch (error) {
-			// @ts-ignore
-			return new Response(error);
+			return new Response(JSON.stringify(error));
 		}
 	},
 };
 
 async function verifySlackRequest(options: {
 	signingSecret: string;
-	body: {token: string; challenge: string; type: string;}
-	headers: {"x-slack-request-timestamp": number; "x-slack-signature": string};
+	body: {token: string;}
+	headers: {slackRequestTimestamp: number; slackSignature: string};
 }): Promise<boolean> {
 	if (!options.signingSecret) {
 		throw new Error(`slack signing secret is empty`);
 	}
 
-	const requestTimestampSec = options.headers['x-slack-request-timestamp'];
-	const signature = options.headers['x-slack-signature'];
-	let ourSignatureHash = null;
+	const requestTimestampSec = options.headers.slackRequestTimestamp;
+	const signature = options.headers.slackSignature;
 
 	if (!requestTimestampSec || !signature) {
 		throw new Error(`header x-slack-request-timestamp or x-slack-signature did not have the expected type (null)`);
@@ -64,25 +61,21 @@ async function verifySlackRequest(options: {
 	}
 
 	const enc = new TextEncoder();
-	await crypto.subtle.importKey(
-		"raw",
-		await enc.encode(options.signingSecret),
-		{
-			name: "HMAC",
-			hash: {name: "SHA-256"}
-		},
-		false,
-		["sign", "verify"]
-	).then(async (key) => {
-		await crypto.subtle.sign(
-			"HMAC",
-			key,
-			enc.encode(`${signatureVersion}:${requestTimestampSec}:${JSON.stringify(options.body)}`)
-		).then(signature => {
-			const b = new Uint8Array(signature);
-			ourSignatureHash = Array.prototype.map.call(b, x => x.toString(16).padStart(2, '0')).join("")
-		});
-	});
 
-	return ourSignatureHash === signatureHash
+	const cryptoSignature = Array.prototype.map.call(new Uint8Array(await crypto.subtle.sign(
+		'HMAC',
+		await crypto.subtle.importKey(
+			"raw",
+			await enc.encode(options.signingSecret),
+			{
+				name: "HMAC",
+				hash: {name: "SHA-256"}
+			},
+			false,
+			["sign", "verify"]
+		),
+		enc.encode(`${signatureVersion}:${requestTimestampSec}:${JSON.stringify(options.body.token)}`)
+	)), x => x.toString(16).padStart(2, '0')).join("");
+
+	return cryptoSignature === signatureHash
 }
