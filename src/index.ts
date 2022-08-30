@@ -7,29 +7,33 @@ export default {
 		ctx: ExecutionContext
 	): Promise<Response> {
 		try {
-			const {token} = await request.json();
-			const requestTimestampSec = await request.headers.get('x-slack-request-timestamp') as string;
+			const body = await request.json();
+			const requestTimestampSec = await request.headers.get('x-slack-request-timestamp');
 			const signature = await request.headers.get('x-slack-signature') as string;
 
 			const verify = await verifySlackRequest({
-				signingSecret: '5d21573fcbf36327034639919d2eaaca', // link to the documentation https://api.slack.com/authentication/verifying-requests-from-slack#verifying-requests-from-slack-using-signing-secrets__a-recipe-for-security__step-by-step-walk-through-for-validating-a-request
-				body: {token},
+				signingSecret: '', // link to the documentation https://api.slack.com/authentication/verifying-requests-from-slack#verifying-requests-from-slack-using-signing-secrets__app-management-updates
+				body: body,
 				headers: {
-					slackRequestTimestamp: JSON.parse(requestTimestampSec),
+					slackRequestTimestamp: requestTimestampSec,
 					slackSignature: signature,
 				},
 			});
 			return new Response(JSON.stringify(verify));
 		} catch (error) {
-			return new Response(JSON.stringify(error));
+			return new Response(error);
 		}
 	},
 };
 
 async function verifySlackRequest(options: {
 	signingSecret: string;
-	body: {token: string;}
-	headers: {slackRequestTimestamp: number; slackSignature: string};
+	body: ({
+		token: string;
+		challenge?: string;
+		type?: string;
+	} & {[s: string]: unknown })[];
+	headers: { slackRequestTimestamp: string | null; slackSignature: string };
 }): Promise<boolean> {
 	if (!options.signingSecret) {
 		throw new Error(`slack signing secret is empty`);
@@ -45,7 +49,7 @@ async function verifySlackRequest(options: {
 	const requestTimestampMaxDeltaMin = 5;
 	const fiveMinutesAgoSec = Math.floor(Date.now() / 1000) - 60 * requestTimestampMaxDeltaMin;
 
-	if (requestTimestampSec < fiveMinutesAgoSec) {
+	if (+requestTimestampSec < fiveMinutesAgoSec) {
 		throw new Error(`x-slack-request-timestamp must differ from system time by no more than ${requestTimestampMaxDeltaMin
 		} minutes or request is stale`);
 	}
@@ -74,7 +78,7 @@ async function verifySlackRequest(options: {
 			false,
 			["sign", "verify"]
 		),
-		enc.encode(`${signatureVersion}:${requestTimestampSec}:${JSON.stringify(options.body.token)}`)
+		enc.encode(`${signatureVersion}:${requestTimestampSec}:${JSON.stringify(options.body)}`)
 	)), x => x.toString(16).padStart(2, '0')).join("");
 
 	return cryptoSignature === signatureHash
