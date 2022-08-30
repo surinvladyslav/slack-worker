@@ -12,7 +12,7 @@ export default {
 			const signature = await request.headers.get('x-slack-signature') as string;
 
 			const verify = await verifySlackRequest({
-				signingSecret: '', // link to the documentation https://api.slack.com/authentication/verifying-requests-from-slack#verifying-requests-from-slack-using-signing-secrets__app-management-updates
+				signingSecret: '', // link to the documentation https://api.slack.com/authentication/verifying-requests-from-slack#about
 				body: body,
 				headers: {
 					slackRequestTimestamp: requestTimestampSec,
